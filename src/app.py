@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from run_query import get_code, clean_code, run_code
+from agent import answer_question
 from file_qa import ask_about_file
 
 TABULAR = ("csv", "xlsx")
@@ -68,16 +68,35 @@ if question:
         with st.spinner("Thinking..."):
             try:
                 if is_tabular:
-                    code = clean_code(get_code(question, list(df.columns)))
-                    result = run_code(code, df)
-                    if isinstance(result, (pd.DataFrame, pd.Series)):
-                        st.dataframe(result)
+                    out = answer_question(question, df)
+
+                    if out["success"]:
+                        result = out["result"]
+                        if isinstance(result, (pd.DataFrame, pd.Series)):
+                            st.dataframe(result)
+                        else:
+                            st.write(result)
+                        content = str(result)
                     else:
-                        st.write(result)
-                    with st.expander("Generated code"):
-                        st.code(code, language="python")
+                        content = (
+                            f"The agent could not answer after "
+                            f"{out['attempts']} attempts."
+                        )
+                        st.error(content)
+
+                    with st.expander(f"Generated code (attempts: {out['attempts']})"):
+                        st.code(out["code"], language="python")
+
+                    if out["attempts"] > 1:
+                        with st.expander("Retry log"):
+                            for step in out["log"]:
+                                st.write(f"**Attempt {step['attempt']}**")
+                                st.code(step["code"], language="python")
+                                if step["error"]:
+                                    st.error(step["error"])
+
                     st.session_state.messages.append(
-                        {"role": "assistant", "content": str(result), "code": code}
+                        {"role": "assistant", "content": content, "code": out["code"]}
                     )
                 else:
                     answer = ask_about_file(file_bytes, ext, question)
