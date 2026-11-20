@@ -2,10 +2,14 @@ import pandas as pd
 import streamlit as st
 
 from run_query import get_code, clean_code, run_code
+from file_qa import ask_about_file
+
+TABULAR = ("csv", "xlsx")
+MEDIA = ("jpg", "jpeg", "png", "pdf")
 
 st.set_page_config(page_title="InsightAgent", page_icon="📊", layout="wide")
 st.title("📊 InsightAgent")
-st.caption("Upload your dataset and ask question in English.")
+st.caption("Upload a CSV, Excel, image or PDF and ask questions in plain English.")
 
 
 def load_data(file):
@@ -14,30 +18,38 @@ def load_data(file):
     return pd.read_excel(file)
 
 
-# Sidebar: dataset upload
 with st.sidebar:
-    st.header("Dataset")
-    uploaded = st.file_uploader("Choose Either CSV or Excel File", type=["csv", "xlsx"])
+    st.header("File")
+    uploaded = st.file_uploader("Choose a file", type=list(TABULAR + MEDIA))
 
 if uploaded is None:
-    st.info("To start upload the csv file on the right side column.")
+    st.info("Upload a file in the sidebar to begin.")
     st.stop()
 
-# Naya file aaye to chat history reset karein
+ext = uploaded.name.rsplit(".", 1)[-1].lower()
+is_tabular = ext in TABULAR
+
+# Reset chat when a new file is uploaded
 if st.session_state.get("file_name") != uploaded.name:
     st.session_state.file_name = uploaded.name
     st.session_state.messages = []
 
-df = load_data(uploaded)
+# Preview
+if is_tabular:
+    df = load_data(uploaded)
+    with st.sidebar:
+        st.success(f"{df.shape[0]} rows, {df.shape[1]} columns")
+        st.write("**Columns:**", list(df.columns))
+    with st.expander("Dataset preview (first 5 rows)"):
+        st.dataframe(df.head())
+else:
+    file_bytes = uploaded.getvalue()
+    if ext in ("jpg", "jpeg", "png"):
+        st.image(file_bytes, caption=uploaded.name, width=400)
+    else:
+        st.info(f"PDF loaded: {uploaded.name} ({len(file_bytes) / 1024:.0f} KB)")
 
-with st.sidebar:
-    st.success(f"{df.shape[0]} rows, {df.shape[1]} columns")
-    st.write("**Columns:**", list(df.columns))
-
-with st.expander("Dataset preview (First 5 rows)"):
-    st.dataframe(df.head())
-
-# Purani chat dikhayein
+# Chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -45,8 +57,7 @@ for msg in st.session_state.messages:
             with st.expander("Generated code"):
                 st.code(msg["code"], language="python")
 
-# Naya sawaal
-question = st.chat_input("Any question? ...")
+question = st.chat_input("Ask your question...")
 
 if question:
     st.session_state.messages.append({"role": "user", "content": question})
@@ -54,24 +65,28 @@ if question:
         st.markdown(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking on basis of the dataset..."):
+        with st.spinner("Thinking..."):
             try:
-                code = clean_code(get_code(question, list(df.columns)))
-                result = run_code(code, df)
-
-                if isinstance(result, (pd.DataFrame, pd.Series)):
-                    st.dataframe(result)
+                if is_tabular:
+                    code = clean_code(get_code(question, list(df.columns)))
+                    result = run_code(code, df)
+                    if isinstance(result, (pd.DataFrame, pd.Series)):
+                        st.dataframe(result)
+                    else:
+                        st.write(result)
+                    with st.expander("Generated code"):
+                        st.code(code, language="python")
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": str(result), "code": code}
+                    )
                 else:
-                    st.write(result)
-
-                with st.expander("Generated code"):
-                    st.code(code, language="python")
-
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": str(result), "code": code}
-                )
+                    answer = ask_about_file(file_bytes, ext, question)
+                    st.markdown(answer)
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer}
+                    )
             except Exception as e:
-                st.error(f"Error aaya: {e}")
+                st.error(f"Error: {e}")
                 st.session_state.messages.append(
                     {"role": "assistant", "content": f"Error: {e}"}
                 )

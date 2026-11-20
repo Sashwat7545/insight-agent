@@ -1,12 +1,7 @@
-import os
 import re
 import pandas as pd
-from dotenv import load_dotenv
-from google import genai
 
-load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+from llm import generate
 
 
 def get_code(question, columns):
@@ -16,8 +11,7 @@ Question: {question}
 Write pandas code that answers the question.
 Store the final answer in a variable named `result`.
 Return only code."""
-    response = client.models.generate_content(model=MODEL, contents=prompt)
-    return response.text
+    return generate(prompt)
 
 
 def clean_code(text):
@@ -33,11 +27,18 @@ def run_code(code, df):
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("data/titanic.csv")
-    question = "What is the survival rate by passenger class?"
+    import sys
 
-    raw = get_code(question, list(df.columns))
-    code = clean_code(raw)
+    path = sys.argv[1] if len(sys.argv) > 1 else "data/titanic.csv"
+    df = pd.read_csv(path)
+    print(f"Dataset load hua: {df.shape[0]} rows, {df.shape[1]} columns")
+    print("Columns:", list(df.columns))
 
-    print("Generated code:\n", code)
-    print("\nResult:\n", run_code(code, df))
+    while True:
+        question = input("\nSawaal puchhiye (band karne ke liye 'exit'): ")
+        if question.strip().lower() == "exit":
+            break
+
+        code = clean_code(get_code(question, list(df.columns)))
+        print("\nGenerated code:\n", code)
+        print("\nResult:\n", run_code(code, df))
